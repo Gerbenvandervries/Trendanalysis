@@ -66,6 +66,7 @@ function copyQCdataToTmp() {
 	sed "/${_log_line_base}.failed/d" "${_log_controle_file_base}" > "${_log_controle_file_base}.tmp"
 	sed "/${_log_line_base}.started/d" "${_log_controle_file_base}.tmp" > "${_log_controle_file_base}.tmp2"
 	echo "${_log_line_base}.finished" >> "${_log_controle_file_base}.tmp2"
+	sync
 	mv "${_log_controle_file_base}.tmp2" "${_log_controle_file_base}"
 	log4Bash 'TRACE' "${LINENO}" "${FUNCNAME:-main}" '0' "Finished copying data: ${_data}"
 }
@@ -92,6 +93,7 @@ function copyQCrawdataToTmp() {
 	sed "/${_log_line_base}.failed/d" "${_log_controle_file_base}" > "${_log_controle_file_base}.tmp"
 	sed "/${_log_line_base}.started/d" "${_log_controle_file_base}.tmp" > "${_log_controle_file_base}.tmp2"
 	echo "${_log_line_base}.finished" >> "${_log_controle_file_base}.tmp2"
+	sync
 	mv "${_log_controle_file_base}.tmp2" "${_log_controle_file_base}"
 	log4Bash 'TRACE' "${LINENO}" "${FUNCNAME:-main}" '0' "Finished copying data: ${_data}"
 }
@@ -120,6 +122,7 @@ function copyQCdarwindataToTmp() {
 	sed "/${_log_line_base}.failed/d" "${_log_controle_file_base}" > "${_log_controle_file_base}.tmp"
 	sed "/${_log_line_base}.started/d" "${_log_controle_file_base}.tmp" > "${_log_controle_file_base}.tmp2"
 	echo "${_log_line_base}.finished" >> "${_log_controle_file_base}.tmp2"
+	sync
 	mv "${_log_controle_file_base}.tmp2" "${_log_controle_file_base}"
 	log4Bash 'TRACE' "${LINENO}" "${FUNCNAME:-main}" '0' "Finished copying data: ${_data}"
 }
@@ -158,6 +161,7 @@ function copyQCProjectdataToTmp() {
 		sed "/${_line_base}.failed/d" "${_project_job_controle_file_base}" > "${_project_job_controle_file_base}.tmp"
 		sed "/${_line_base}.started/d" "${_project_job_controle_file_base}.tmp" > "${_project_job_controle_file_base}.tmp2"
 		echo "${_line_base}.finished" >> "${_project_job_controle_file_base}.tmp2"
+		sync
 		mv "${_project_job_controle_file_base}.tmp2" "${_project_job_controle_file_base}"
 		log4Bash 'TRACE' "${LINENO}" "${FUNCNAME:-main}" '0' "Finished copying data: ${_project}"
 
@@ -186,6 +190,7 @@ function copyQCProjectdataToTmp() {
 		sed "/${_line_base}.failed/d" "${_project_job_controle_file_base}" > "${_project_job_controle_file_base}.tmp"
 		sed "/${_line_base}.started/d" "${_project_job_controle_file_base}.tmp" > "${_project_job_controle_file_base}.tmp2"
 		echo "${_line_base}.finished" >> "${_project_job_controle_file_base}.tmp2"
+		sync
 		mv "${_project_job_controle_file_base}.tmp2" "${_project_job_controle_file_base}"
 		log4Bash 'TRACE' "${LINENO}" "${FUNCNAME:-main}" '0' "Finished copying data: ${_project}"
 		# The Dragen project (Exoom, WGS, sWGS) wil be copied to ${TMP_ROOT_DIR}/trendanalysis/dragen/
@@ -215,6 +220,7 @@ function copyQCProjectdataToTmp() {
 		sed "/${_line_base}.failed/d" "${_project_job_controle_file_base}" > "${_project_job_controle_file_base}.tmp"
 		sed "/${_line_base}.started/d" "${_project_job_controle_file_base}.tmp" > "${_project_job_controle_file_base}.tmp2"
 		echo "${_line_base}.finished" >> "${_project_job_controle_file_base}.tmp2"
+		sync
 		mv "${_project_job_controle_file_base}.tmp2" "${_project_job_controle_file_base}"
 		log4Bash 'TRACE' "${LINENO}" "${FUNCNAME:-main}" '0' "Finished copying data: ${_project}" 
 	elif [[ -e "${_prm_project_dir}/${_project}/run01/results/qc/stats.tsv" && "${_project}" =~ "WGS" ]]
@@ -243,6 +249,7 @@ function copyQCProjectdataToTmp() {
 		sed "/${_line_base}.failed/d" "${_project_job_controle_file_base}" > "${_project_job_controle_file_base}.tmp"
 		sed "/${_line_base}.started/d" "${_project_job_controle_file_base}.tmp" > "${_project_job_controle_file_base}.tmp2"
 		echo "${_line_base}.finished" >> "${_project_job_controle_file_base}.tmp2"
+		sync
 		mv "${_project_job_controle_file_base}.tmp2" "${_project_job_controle_file_base}"
 		log4Bash 'TRACE' "${LINENO}" "${FUNCNAME:-main}" '0' "Finished copying data for ${_project}." 
 	else
