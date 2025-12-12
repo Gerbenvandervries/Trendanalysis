@@ -80,6 +80,83 @@ EOH
 
 #
 ##
+### Job controle functions
+##
+#
+function isAlreadyProcessed() {
+    local datatype="${1}"
+    local job_control_line="${2}"
+    
+    local finished_file="${logs_dir}/process.${datatype}.trendanalysis.finished"
+    if [[ -f "${finished_file}" ]]
+    then
+      grep -Fxq "${job_control_line}" "${finished_file}"
+    else
+      touch "${finished_file}"
+      return 1
+    fi
+}
+
+function markProcessingStarted() {
+    local datatype="${1}"
+    local job_control_line="${2}"
+
+    touch "${logs_dir}/process.${datatype}.trendanalysis."{started,failed,finished}
+    echo "${job_control_line}" >> "${logs_dir}/process.${datatype}.trendanalysis.started"
+}
+
+function markProcessingFinished() {
+    local datatype="${1}"
+    local job_control_line="${2}"
+
+    sed -i "/${job_control_line}/d" "${logs_dir}/process.${datatype}.trendanalysis."{started,failed}
+    echo "${job_control_line}" >> "${logs_dir}/process.${datatype}.trendanalysis.finished"
+}
+
+function markProcessingFailed() {
+    local datatype="${1}"
+    local job_control_line="${2}"
+
+    sed -i "/${job_control_line}/d" "${logs_dir}/process.${datatype}.trendanalysis.started"
+    echo "${job_control_line}" >> "${logs_dir}/process.${datatype}.trendanalysis.failed"
+}
+
+# Algeneme aanroep per handler/datatype
+function processData() {
+  local datatype="${1}"
+  local data_handler="${2}"
+  local basedir="${3}"
+
+  log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Verwerken van type '$type' gestart"
+
+  readarray -t runs < <(find "${basedir}" -maxdepth 1 -mindepth 1 -type d -name "[!.]*" | xargs -r basename -a)
+
+  # Als er geen runs zijn gevonden, gebruik de basename van basedir, voor Darwin bijv.
+  if [ "${#runs[@]}" -eq 0 ]; then
+    runs=( "$(basename "${basedir}")" )
+  fi
+
+  for run in "${runs[@]}"; do
+    local job_control_line="${run}.trendanalysis.${data_handler}"
+    
+    if isAlreadyProcessed "${datatype}" "${job_control_line}"; then
+      log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Verwerken van type '${type}' project '${run}' al verwerkt."
+      continue
+    fi
+
+    markProcessingStarted "${datatype}" "${job_control_line}"
+
+    if "${data_handler}" "${run}" "${job_control_line}"; then
+         markProcessingFinished "${datatype}" "${job_control_line}"
+    else
+         markProcessingFailed "${datatype}" "${job_control_line}"
+    fi
+  done
+}
+
+
+#
+##
 ### Data proccessed functions.
 ##
 #
@@ -231,6 +308,10 @@ done
 # but before doing the actual data trnasfers.
 #
 
+#temp
+TMP_ROOT_DIR='/groups/umcg-atd/tmp07/umcg-gvdvries/trendanalyse-refactor'
+EBROOTTRENDANALYSIS=''
+
 lockFile="${TMP_ROOT_DIR}/logs/${SCRIPT_NAME}.lock"
 thereShallBeOnlyOne "${lockFile}"
 log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Successfully got exclusive access to lock file ${lockFile} ..."
@@ -242,8 +323,6 @@ log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Log files will be written 
 
 module load "ChronQC/${CHRONQC_VERSION}"
 
-TMP_ROOT_DIR='/groups/umcg-atd/tmp02/projects/umcg-gvdvries/'
-
 tmp_trendanalyse_dir="${TMP_ROOT_DIR}/trendanalysis/"
 logs_dir="${TMP_ROOT_DIR}/logs/trendanalysis/"
 mkdir -p "${TMP_ROOT_DIR}/logs/trendanalysis/"
@@ -251,8 +330,22 @@ chronqc_tmp="${tmp_trendanalyse_dir}/tmp/"
 CHRONQC_DATABASE_NAME="${tmp_trendanalyse_dir}/database/"
 today=$(date '+%Y%m%d')
 
- 
 
+# Make sure ENABLED_TYPES always exist
+if ! declare -p ENABLED_TYPES &>/dev/null; then
+  # Declare all false if not defined.
+  declare -A ENABLED_TYPES=(
+    [rawdata]="${rawdata:-false}"
+    [projects]="${projects:-false}"
+    [RNAprojects]="${RNAprojects:-false}"
+    [darwin]="${darwin:-false}"
+    [dragen]="${dragen:-false}"
+    [openarray]="${openarray:-false}"
+    [ogm]="${ogm:-false}"
+  )
+fi
+
+ 
 # Mapping: data Type + functions + inputdir
 declare -A DATA_HANDLERS=(
   [rawdata]=processRawdata
