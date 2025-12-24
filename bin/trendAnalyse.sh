@@ -83,6 +83,18 @@ EOH
 ### Job controle functions
 ##
 #
+function doesTableExist() {
+    local _db_path="${1}"
+    local _db_table="${2}"
+
+    [[ -f "${_db_path}" ]] || return 1
+    [[ -n "${_db_table}" ]] || return 1
+
+    sqlite3 "${_db_path}" \
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='$_db_table' LIMIT 1;" \
+        | grep -q 1
+}
+
 function isAlreadyProcessed() {
     local datatype="${1}"
     local job_control_line="${2}"
@@ -145,8 +157,8 @@ function processData() {
     fi
 
     markProcessingStarted "${datatype}" "${job_control_line}"
-
-    if "${data_handler}" "${run}" "${job_control_line}"; then
+	#removed "${job_control_line}"
+    if "${data_handler}" "${run}" "${basedir}"; then
          markProcessingFinished "${datatype}" "${job_control_line}"
     else
          markProcessingFailed "${datatype}" "${job_control_line}"
@@ -167,43 +179,291 @@ function updateOrCreateDatabase() {
 	local _tableFile="${2}" #"${chronqc_tmp}/${_rawdata}.SequenceRun.csv"
 	local _runDateInfo="${3}" #"${chronqc_tmp}/${_rawdata}.SequenceRun_run_date_info.csv"
 	local _dataLabel="${4}" #"${_sequencer}" 
-	local _job_controle_line_base="${5}" #"${_rawdata_job_controle_line_base}"
-  local _forceCreate="${6}"
+	local _forceCreate="${5:-false}"
 	
-    log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Update database for project ${_tableFile}"    
-    if doesTableExist "${_db_table}" || [[ "${_forceCreate}" == "false" ]]; then
-
-      # updates existing table with new rundata.
-      chronqc database --update --db "${CHRONQC_DATABASE_NAME}/chronqc_db/chronqc.stats.sqlite" \
+	log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Force create database for project == ${_forceCreate}"
+	
+	if doesTableExist "${CHRONQC_DATABASE_NAME}/chronqc_db/chronqc.stats.sqlite" "${_db_table}" || [[ "${_forceCreate}" != "true" ]]; then
+		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Update database for project ${_tableFile}"
+		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Tabel ${_db_table} does exist in ${CHRONQC_DATABASE_NAME}/chronqc_db/chronqc.stats.sqlite" 
+		# update datebase if tabel already exist and _forceCreate != true
+		chronqc database --update --db "${CHRONQC_DATABASE_NAME}/chronqc_db/chronqc.stats.sqlite" \
 				"${_tableFile}" \
 				--db-table "${_db_table}" \
 				--run-date-info "${_runDateInfo}" \
 				"${_dataLabel}" || {
 					log4Bash 'ERROR' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "Failed to import ${_tableFile} with ${_dataLabel} stored to Chronqc database." 
-					return
-        }
-    else
-
-      log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Create database for project ${_tableFile}"
-      # Created non existing table, and adds new rundata.
-      chronqc database --create -f \
-        -o "${CHRONQC_DATABASE_NAME}" \
-        "${_tableFile}" \
-        --run-date-info "${_runDateInfo}" \
-        --db-table "${_db_table}" \
-        "${_dataLabel}" -f || {
-          log4Bash 'ERROR' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "Failed to create database and import ${_tableFile} with ${_dataLabel} stored to Chronqc database." 
-          return
-        }
-      fi
-      log4Bash 'INFO' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "${FUNCNAME[0]} ${_tableFile} with ${_dataLabel} was stored in Chronqc database."
-      log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "The line ${_job_controle_line_base} added to process.dataToTrendanalysis.finished file."
+					return 1
+		}
+	else
+		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Tabel ${_db_table} does not exist in ${CHRONQC_DATABASE_NAME}/chronqc_db/chronqc.stats.sqlite, \
+				or _forceCreate. == true"
+		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Create database for project ${_tableFile}"
+		# Created non existing table, and adds new rundata.
+		chronqc database --create -f \
+			-o "${CHRONQC_DATABASE_NAME}" \
+			"${_tableFile}" \
+			--run-date-info "${_runDateInfo}" \
+			--db-table "${_db_table}" \
+			"${_dataLabel}" -f || {
+			log4Bash 'ERROR' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "Failed to create database and import ${_tableFile} with ${_dataLabel} stored to Chronqc database." 
+			return 1
+			}
+		fi
+	log4Bash 'INFO' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "${FUNCNAME[0]} ${_tableFile} with ${_dataLabel} was stored in Chronqc database."
 }
 
+function processProjects() {
+	local _project="${1}"
+	local _chronqc_projects_dir="${2}"
+	#local _processprojecttodb_controle_line_base="${2}"
+	_chronqc_projects_dir="${_chronqc_projects_dir}/${_project}"
+
+	log4Bash 'TRACE' "${LINENO}" "${FUNCNAME:-main}" '0' "Removing files from ${chronqc_tmp} ..."
+	rm -rf "${chronqc_tmp:-missing}"/*
+
+	log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Processing ${_chronqc_projects_dir}/${_project}.run_date_info.csv"
+	if [[ -e "${_chronqc_projects_dir}/${_project}.run_date_info.csv" ]]
+	then
+		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "found ${_chronqc_projects_dir}/${_project}.run_date_info.csv. Pre-processing: ${_project}."
+		cp "${_chronqc_projects_dir}/${_project}.run_date_info.csv" "${chronqc_tmp}/${_project}.run_date_info.csv"
+		cp "${_chronqc_projects_dir}/multiqc_sources.txt" "${chronqc_tmp}/${_project}.multiqc_sources.txt"
+		for multiQC in "${MULTIQC_METRICS_TO_PLOT[@]}"
+		do
+			local _metrics="${multiQC%:*}"
+			log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "using _metrics: ${_metrics}"
+			if [[ "${_metrics}" == multiqc_picard_insertSize.txt ]]
+			then
+				cp "${_chronqc_projects_dir}/${_metrics}" "${chronqc_tmp}/${_project}.${_metrics}"
+				awk -v FS='\t' '{$1=""}1' "${chronqc_tmp}/${_project}.${_metrics}" | awk -v OFS='\t' '{$1=$1}1' > "${chronqc_tmp}/${_project}.1.${_metrics}"
+				perl -pe 's|SAMPLE_NAME\t|Sample\t|' "${chronqc_tmp}/${_project}.1.${_metrics}" > "${chronqc_tmp}/${_project}.3.${_metrics}"
+				perl -pe 's|SAMPLE\t|SAMPLE_NAME2\t|' "${chronqc_tmp}/${_project}.3.${_metrics}" > "${chronqc_tmp}/${_project}.2.${_metrics}"
+			elif [[ "${_metrics}" == multiqc_fastqc.txt ]]
+			then
+				cp "${_chronqc_projects_dir}/${_metrics}" "${chronqc_tmp}/${_project}.${_metrics}"
+				# This part will make a run_date_info.csv for only the lane information
+				echo -e 'Sample,Run,Date' >> "${chronqc_tmp}/${_project}.lane.run_date_info.csv"
+				IFS=$'\t' read -ra perLaneSample <<< "$(awk '$1 ~ /.recoded/ {print $1}' "${chronqc_tmp}/${_project}.${_metrics}" | tr '\n' '\t')"
+
+				for laneSample in "${perLaneSample[@]}"
+				do
+					runDate=$(echo "${laneSample}" | cut -d "_" -f 1)
+					echo -e "${laneSample},${_project},${runDate}" >> "${chronqc_tmp}/${_project}.lane.run_date_info.csv"
+				done
+				#cp "${chronqc_tmp}/${_project}.${_metrics}" "${chronqc_tmp}/${_project}.2.${_metrics}"
+				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "using _metrics: ${_metrics} to create ${_project}.lane.run_date_info.csv"
+				echo -e 'Sample\t%GC\ttotal_deduplicated_percentage' >> "${chronqc_tmp}/${_project}.2.${_metrics}"
+				awk -v FS="\t" -v OFS='\t' -v header="Sample,%GC,total_deduplicated_percentage" 'FNR==1{split(header,h,/,/);for(i=1; i in h; i++){for(j=1; j<=NF; j++){if(tolower(h[i])==tolower($j)){ d[i]=j; break }}}next}{for(i=1; i in h; i++)printf("%s%s",i>1 ? OFS:"",  i in d ?$(d[i]):"");print "";}' "${chronqc_tmp}/${_project}.${_metrics}" >> "${chronqc_tmp}/${_project}.2.${_metrics}"
+			else
+				cp "${_chronqc_projects_dir}/${_metrics}" "${chronqc_tmp}/${_project}.${_metrics}"
+				perl -pe 's|SAMPLE\t|SAMPLE_NAME2\t|' "${chronqc_tmp}/${_project}.${_metrics}" > "${chronqc_tmp}/${_project}.2.${_metrics}"
+			fi
+		done
+		#
+		# Rename one of the duplicated SAMPLE column names to make it work.
+		#
+		cp "${chronqc_tmp}/${_project}.run_date_info.csv" "${chronqc_tmp}/${_project}.2.run_date_info.csv"
+
+		#
+		# Get all the samples processed with FastQC form the MultiQC multi_source file,
+		# because samplenames differ from regular samplesheet at that stage in th epipeline.
+		# The Output is converted into standard ChronQC run_date_info.csv format.
+		#
+		#grep fastqc "${chronqc_tmp}/${_project}.multiqc_sources.txt" | awk -v p="${_project}" '{print $3","p","substr($3,1,6)}' >>"${chronqc_tmp}/${_project}.2.run_date_info.csv"
+		awk 'BEGIN{FS=OFS=","} NR>1{cmd = "date -d \"" $3 "\" \"+%d/%m/%Y\"";cmd | getline out; $3=out; close("uuidgen")} 1' "${chronqc_tmp}/${_project}.2.run_date_info.csv" > "${chronqc_tmp}/${_project}.2.run_date_info.csv.tmp"
+		awk 'BEGIN{FS=OFS=","} NR>1{cmd = "date -d \"" $3 "\" \"+%d/%m/%Y\"";cmd | getline out; $3=out; close("uuidgen")} 1' "${chronqc_tmp}/${_project}.lane.run_date_info.csv" > "${chronqc_tmp}/${_project}.lane.run_date_info.csv.tmp"
+
+		#
+		# Check if the date in the run_date_info.csv file is in correct format, dd/mm/yyyy
+		#
+		_checkdate=$(awk 'BEGIN{FS=OFS=","} NR==2 {print $3}' "${chronqc_tmp}/${_project}.2.run_date_info.csv.tmp")
+		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "_checkdate:${_checkdate}"
+		mv "${chronqc_tmp}/${_project}.2.run_date_info.csv.tmp" "${chronqc_tmp}/${_project}.2.run_date_info.csv"
+		_checkdate=$(awk 'BEGIN{FS=OFS=","} NR==2 {print $3}' "${chronqc_tmp}/${_project}.lane.run_date_info.csv.tmp")
+		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "_checkdate:${_checkdate}"
+		mv "${chronqc_tmp}/${_project}.lane.run_date_info.csv.tmp" "${chronqc_tmp}/${_project}.lane.run_date_info.csv"
+
+		#
+		# Get panel information from $_project} based on column 'capturingKit'.
+		#
+		_panel=$(awk -F "${SAMPLESHEET_SEP}" 'NR==1 { for (i=1; i<=NF; i++) { f[$i] = i}}{if(NR > 1) print $(f["capturingKit"]) }' "${_chronqc_projects_dir}/${_project}.csv" | sort -u | cut -d'/' -f2)
+		IFS='_' read -r -a array <<< "${_panel}"
+		if [[ "${array[0]}" == *"Exoom"* ]]
+		then
+			_panel='Exoom'
+		else
+			_panel="${array[0]}"
+		fi
+		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "PANEL= ${_panel}"
+		if [[ "${_checkdate}"  =~ [0-9] ]]
+		then
+			for i in "${MULTIQC_METRICS_TO_PLOT[@]}"
+			do
+				local _metrics="${i%:*}"
+				local _table="${i#*:}"
+				log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Importing ${_project}.${_metrics}, and using table ${_table}"
+				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "________________${_metrics}________${_table}_____________"
+				if [[ "${_metrics}" == multiqc_fastqc.txt ]]
+				then
+					updateOrCreateDatabase "${_table}" "${chronqc_tmp}/${_project}.2.${_metrics}" "${chronqc_tmp}/${_project}.lane.run_date_info.csv" "${_panel}" || return 1
+				elif [[ -f "${chronqc_tmp}/${_project}.2.${_metrics}" ]]
+				then
+					updateOrCreateDatabase "${_table}" "${chronqc_tmp}/${_project}.2.${_metrics}" "${chronqc_tmp}/${_project}.2.run_date_info.csv" "${_panel}" || return 1
+				else
+					log4Bash 'INFO' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "The file ${chronqc_tmp}/${_project}.2.${_metrics} does not exist, so can't be added to the database"
+					continue
+				fi
+			done
+		else
+			log4Bash 'TRACE' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "${_project}: panel: ${_panel} has date ${_checkdate} this is not fit for chronQC." 
+			return 1
+		fi
+	else
+		log4Bash 'TRACE' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "For project ${_project} no run date info file is present, ${_project} cant be added to the database."
+	fi
+}
+
+function processRnaProjects {
+	local _rnaproject="${1}"
+	local _chronqc_rnaprojects_dir="${2}"
+	#local _processrnaprojecttodb_controle_line_base="${3}"
+	_chronqc_rnaprojects_dir="${_chronqc_rnaprojects_dir}/${_rnaproject}"
+	
+	log4Bash 'TRACE' "${LINENO}" "${FUNCNAME:-main}" '0' "Removing files from ${chronqc_tmp} ..."
+	rm -rf "${chronqc_tmp:-missing}"/*
+
+	log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Processing ${_chronqc_rnaprojects_dir}/${_rnaproject}.run_date_info.csv"
+	if [[ -e "${_chronqc_rnaprojects_dir}/${_rnaproject}.run_date_info.csv" ]]
+	then
+		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "found ${_chronqc_rnaprojects_dir}/${_rnaproject}.run_date_info.csv. Updating ChronQC database with ${_rnaproject}."
+		cp "${_chronqc_rnaprojects_dir}/${_rnaproject}.run_date_info.csv" "${chronqc_tmp}/${_rnaproject}.run_date_info.csv"
+		for RNAmultiQC in "${MULTIQC_RNA_METRICS_TO_PLOT[@]}"
+		do
+	#'multiqc_general_stats.txt:general_stats'
+	#'multiqc_star.txt:star'
+	#'multiqc_picard_RnaSeqMetrics.txt:RnaSeqMetrics'
+
+			local _rnametrics="${RNAmultiQC%:*}"
+			log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "using _rnametrics: ${_rnametrics}"
+			if [[ "${_rnametrics}" == multiqc_picard_RnaSeqMetrics.txt ]]
+			then
+				cp "${_chronqc_rnaprojects_dir}/${_rnametrics}" "${chronqc_tmp}/${_rnaproject}.${_rnametrics}"
+				perl -pe 's|SAMPLE\t|SAMPLE_NAME2\t|' "${chronqc_tmp}/${_rnaproject}.${_rnametrics}" > "${chronqc_tmp}/${_rnaproject}.1.${_rnametrics}"
+			else
+				cp "${_chronqc_rnaprojects_dir}/${_rnametrics}" "${chronqc_tmp}/${_rnaproject}.${_rnametrics}"
+			fi
+		done
+		#
+		# Rename one of the duplicated SAMPLE column names to make it work.
+		#
+		#cp "${chronqc_tmp}/${_rnaproject}.run_date_info.csv" "${chronqc_tmp}/${_project}.2.run_date_info.csv"
+
+		#
+		# Get all the samples processed with FastQC form the MultiQC multi_source file,
+		# because samplenames differ from regular samplesheet at that stage in th epipeline.
+		# The Output is converted into standard ChronQC run_date_info.csv format.
+		#
+		awk 'BEGIN{FS=OFS=","} NR>1{cmd = "date -d \"" $3 "\" \"+%d/%m/%Y\"";cmd | getline out; $3=out; close("uuidgen")} 1' "${chronqc_tmp}/${_rnaproject}.run_date_info.csv" > "${chronqc_tmp}/${_rnaproject}.2.run_date_info.csv"
+
+		#
+		# Check if the date in the run_date_info.csv file is in correct format, dd/mm/yyyy
+		#
+		_checkdate=$(awk 'BEGIN{FS=OFS=","} NR==2 {print $3}' "${chronqc_tmp}/${_rnaproject}.run_date_info.csv")
+		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "_checkdate:${_checkdate}"
+		#mv "${chronqc_tmp}/${_project}.2.run_date_info.csv.tmp" "${chronqc_tmp}/${_project}.2.run_date_info.csv"
+
+		if [[ "${_checkdate}"  =~ [0-9] ]]
+		then
+			for i in "${MULTIQC_RNA_METRICS_TO_PLOT[@]}"
+			do
+				local _rnametrics="${i%:*}"
+				local _rnatable="${i#*:}"
+				log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Importing ${_rnaproject}.${_rnametrics}, and using table ${_rnatable}"
+				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "________________${_rnametrics}________${_rnatable}_____________"
+				if [[ "${_rnametrics}" == multiqc_picard_RnaSeqMetrics.txt ]]
+				then
+					updateOrCreateDatabase "${_rnatable}" "${chronqc_tmp}/${_rnaproject}.1.${_rnametrics}" "${chronqc_tmp}/${_rnaproject}.2.run_date_info.csv" RNA || return 1 
+				else
+					updateOrCreateDatabase "${_rnatable}" "${chronqc_tmp}/${_rnaproject}.${_rnametrics}" "${chronqc_tmp}/${_rnaproject}.2.run_date_info.csv" RNA || return 1 
+				fi
+			done
+		else
+			log4Bash 'TRACE' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "${_rnaproject}: has date ${_checkdate} this is not fit for chronQC." 
+			return 1
+		fi
+	else
+		log4Bash 'TRACE' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "For project ${_rnaproject} no run date info file is present, ${_rnaproject} cant be added to the database."
+	fi
+}
+
+function processDarwin() {
+	local _darwin_project="${1}"
+	local _darwin_dir="${2}"
+
+	log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Removing files from ${chronqc_tmp} ..."
+	rm -rf "${chronqc_tmp:-missing}"/*
+		
+		
+	readarray -t darwindata < <(
+		find "${_darwin_dir}" \
+			-maxdepth 1 \
+			-mindepth 1 \
+			-type f \
+			-name "*runinfo*.csv" \
+			-printf '%f\n'
+	)
+
+	if [[ "${#darwindata[@]}" -eq 0 ]]; then
+		log4Bash 'WARN' "${LINENO}" "${FUNCNAME[0]}" '0' \
+			"No Darwin runinfo files found in ${_darwin_dir}"
+		return 0
+	fi
+
+	for darwinfile in "${darwindata[@]}"; do
+		
+		_runInfo="$(basename "${darwinfile}" .csv)"
+		_fileType="$(cut -d '_' -f1 <<< "${_runInfo}")"
+		_fileDate="$(cut -d '_' -f3 <<< "${_runInfo}")"
+		_tableFile="${_darwin_dir}/${_fileType}_${_fileDate}.csv"
+		_runInfoFile="${_darwin_dir}/${darwinfile}"
+
+		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "local variables generateChronQCOutput:_runinfo=${_runInfo},_tablefile=${_tableFile}, _filetype=${_fileType}, _fileDate=${_fileDate}"
+		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "starting to file the trendanalysis database with :${_runInfo} and ${_tableFile}"
+	
+
+		if [[ "${_fileType}"  == 'ArrayInzetten' ]]
+		then
+			head -1 "${_runInfoFile}" > "${chronqc_tmp}/ArrayInzettenLabpassed_runinfo_${_fileDate}.csv"
+			head -1 "${_tableFile}" > "${chronqc_tmp}/ArrayInzettenLabpassed_${_fileDate}.csv"
+			grep labpassed "${_runInfoFile}" >> "${chronqc_tmp}/ArrayInzettenLabpassed_runinfo_${_fileDate}.csv"
+			grep labpassed "${_tableFile}" >> "${chronqc_tmp}/ArrayInzettenLabpassed_${_fileDate}.csv"
+
+			updateOrCreateDatabase "${_fileType}All" "${_tableFile}" "${_runInfoFile}" all true
+			updateOrCreateDatabase "${_fileType}Labpassed" "${chronqc_tmp}/ArrayInzettenLabpassed_${_fileDate}.csv" "${chronqc_tmp}/ArrayInzettenLabpassed_runinfo_${_fileDate}.csv" labpassed true
+
+		elif [[ "${_fileType}" == 'Concentratie' ]]
+		then
+			# for now the database will be filled with only the concentration information from the Nimbus2000
+			head -1 "${_runInfoFile}" > "${chronqc_tmp}/ConcentratieNimbus_runinfo_${_fileDate}.csv"
+			head -1 "${_tableFile}" > "${chronqc_tmp}/ConcentratieNimbus_${_fileDate}.csv"
+
+			grep Nimbus "${_runInfoFile}" >> "${chronqc_tmp}/ConcentratieNimbus_runinfo_${_fileDate}.csv"
+			grep Nimbus "${_tableFile}" >> "${chronqc_tmp}/ConcentratieNimbus_${_fileDate}.csv"
+			
+			updateOrCreateDatabase "${_fileType}" "${chronqc_tmp}/ConcentratieNimbus_${_fileDate}.csv" "${chronqc_tmp}/ConcentratieNimbus_runinfo_${_fileDate}.csv" Nimbus true
+
+			log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "database filled with ConcentratieNimbus_${_fileDate}.csv"
+		else
+			updateOrCreateDatabase "${_fileType}" "${_tableFile}" "${_runInfoFile}" NGSlab true
+		fi
+	done
+}
+
+
 processRawdata()    { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> rawdata verwerken: $1"; }
-processProjects()   { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> project verwerken: $1"; }
-processRnaProjects(){ log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> RNA-project verwerken: $1"; }
-processDarwin()     { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> darwin verwerken: $1"; }
+#processProjects()   { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> project verwerken: $1"; }
+#processRnaProjects(){ log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> RNA-project verwerken: $1"; }
+#processDarwin()     { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> darwin verwerken: $1"; }
 processDragen()     { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> dragen verwerken: $1"; }
 processOpenarray()  { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> openarray verwerken: $1"; }
 processOgm()        { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> ogm verwerken: $1"; }
