@@ -399,13 +399,13 @@ function processRnaProjects {
 function processDarwin() {
 	local _darwin_project="${1}"
 	local _darwin_dir="${2}"
+	_chronqc_darwin_dir="${_darwin_dir}/${_darwin_project}"
 
 	log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Removing files from ${chronqc_tmp} ..."
 	rm -rf "${chronqc_tmp:-missing}"/*
-		
-		
+
 	readarray -t darwindata < <(
-		find "${_darwin_dir}" \
+		find "${_chronqc_darwin_dir}" \
 			-maxdepth 1 \
 			-mindepth 1 \
 			-type f \
@@ -415,7 +415,7 @@ function processDarwin() {
 
 	if [[ "${#darwindata[@]}" -eq 0 ]]; then
 		log4Bash 'WARN' "${LINENO}" "${FUNCNAME[0]}" '0' \
-			"No Darwin runinfo files found in ${_darwin_dir}"
+			"No Darwin runinfo files found in ${_chronqc_darwin_dir}"
 		return 0
 	fi
 
@@ -424,12 +424,11 @@ function processDarwin() {
 		_runInfo="$(basename "${darwinfile}" .csv)"
 		_fileType="$(cut -d '_' -f1 <<< "${_runInfo}")"
 		_fileDate="$(cut -d '_' -f3 <<< "${_runInfo}")"
-		_tableFile="${_darwin_dir}/${_fileType}_${_fileDate}.csv"
-		_runInfoFile="${_darwin_dir}/${darwinfile}"
+		_tableFile="${_chronqc_darwin_dir}/${_fileType}_${_fileDate}.csv"
+		_runInfoFile="${_chronqc_darwin_dir}/${darwinfile}"
 
 		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "local variables generateChronQCOutput:_runinfo=${_runInfo},_tablefile=${_tableFile}, _filetype=${_fileType}, _fileDate=${_fileDate}"
 		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "starting to file the trendanalysis database with :${_runInfo} and ${_tableFile}"
-	
 
 		if [[ "${_fileType}"  == 'ArrayInzetten' ]]
 		then
