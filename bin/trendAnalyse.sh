@@ -133,7 +133,7 @@ function markProcessingFailed() {
     echo "${job_control_line}" >> "${logs_dir}/process.${datatype}.trendanalysis.failed"
 }
 
-# Algeneme aanroep per handler/datatype
+# Generic procesor per handler/datatype
 function processData() {
   local datatype="${1}"
   local data_handler="${2}"
@@ -157,7 +157,7 @@ function processData() {
     fi
 
     markProcessingStarted "${datatype}" "${job_control_line}"
-	#removed "${job_control_line}"
+	# 
     if "${data_handler}" "${run}" "${basedir}"; then
          markProcessingFinished "${datatype}" "${job_control_line}"
     else
@@ -449,23 +449,355 @@ function processDarwin() {
 			grep Nimbus "${_runInfoFile}" >> "${chronqc_tmp}/ConcentratieNimbus_runinfo_${_fileDate}.csv"
 			grep Nimbus "${_tableFile}" >> "${chronqc_tmp}/ConcentratieNimbus_${_fileDate}.csv"
 			
-			updateOrCreateDatabase "${_fileType}" "${chronqc_tmp}/ConcentratieNimbus_${_fileDate}.csv" "${chronqc_tmp}/ConcentratieNimbus_runinfo_${_fileDate}.csv" Nimbus true
+			updateOrCreateDatabase "${_fileType}" "${chronqc_tmp}/ConcentratieNimbus_${_fileDate}.csv" "${chronqc_tmp}/ConcentratieNimbus_runinfo_${_fileDate}.csv" Nimbus true || return 1
 
 			log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "database filled with ConcentratieNimbus_${_fileDate}.csv"
 		else
-			updateOrCreateDatabase "${_fileType}" "${_tableFile}" "${_runInfoFile}" NGSlab true
+			updateOrCreateDatabase "${_fileType}" "${_tableFile}" "${_runInfoFile}" NGSlab true || return 1
 		fi
 	done
 }
 
+function processOpenArray() {
 
-processRawdata()    { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> rawdata verwerken: $1"; }
+	local _openarrayproject="${1}"
+	local _openarrayprojectdir
+	local _openarrayfile="${_openarrayproject}.txt"
+	local _chronqc_openarray_dir
+	_chronqc_openarray_dir="${tmp_trendanalyse_dir}/openarray/"
+	_openarrayprojectdir="${_chronqc_openarray_dir}/${_openarrayproject}/"
+	
+	rm -rf "${chronqc_tmp:-missing}"/*
+
+	log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "_openarrayprojectdir is: ${_openarrayprojectdir}."
+	log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "_openarrayproject is: ${_openarrayproject}."
+	log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "_openarrayfile is: ${_openarrayfile}."
+	
+	if [[ -e "${_openarrayprojectdir}/${_openarrayproject}.txt" ]]
+	then
+		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "processing ${_openarrayfile}"
+		dos2unix "${_chronqc_openarray_dir}/${_openarrayproject}/${_openarrayproject}.txt"
+	
+		project=$(grep '# Study Name : ' "${_openarrayprojectdir}/${_openarrayproject}.txt" | awk 'BEGIN{FS=" "}{print $5}')
+		year=$(grep  '# Export Date : ' "${_openarrayprojectdir}/${_openarrayproject}.txt" | awk 'BEGIN{FS=" "}{print $5}' | awk 'BEGIN{FS="/"}{print $3}')
+		month=$(grep  '# Export Date : ' "${_openarrayprojectdir}/${_openarrayproject}.txt" | awk 'BEGIN{FS=" "}{print $5}' | awk 'BEGIN{FS="/"}{print $1}')
+		day=$(grep  '# Export Date : ' "${_openarrayprojectdir}/${_openarrayproject}.txt" | awk 'BEGIN{FS=" "}{print $5}' | awk 'BEGIN{FS="/"}{print $2}')
+	
+		date="${day}/${month}/${year}"
+	
+		#select snps, and flag snps with SD > 80% as PASS.
+		awk '/Assay Name/,/Experiment Name/ {
+			sub("%$","",$3); {
+			if ($3+0 > 75.0 ) {
+				print $1"\t"$2"\t"$3"\tPASS"}
+			else {
+				print $1"\t"$2"\t"$3"\tFAIL" }
+				}
+			}' "${_openarrayprojectdir}/${_openarrayproject}.txt" > "${_openarrayprojectdir}/${_openarrayproject}.snps.csv"
+	
+		# remove last two rows, and replace header.
+		head -n -2 "${_openarrayprojectdir}/${_openarrayproject}.snps.csv" > "${chronqc_tmp}/${_openarrayproject}.snps.csv.temp" 
+		sed '1 s/.*/Sample\tAssay ID\tAssay Call Rate\tQC_PASS/' "${chronqc_tmp}/${_openarrayproject}.snps.csv.temp" > "${_openarrayprojectdir}/${_openarrayproject}.snps.csv"
+	
+		#create ChronQC snp samplesheet
+		echo -e "Sample,Run,Date" > "${_openarrayprojectdir}/${_openarrayproject}.snps.run_date_info.csv"
+		tail -n +2 "${_openarrayprojectdir}/${_openarrayproject}.snps.csv" | awk -v project="${project}"  -v date="${date}" '{ print $1","project","date }' >> "${_openarrayprojectdir}/${_openarrayproject}.snps.run_date_info.csv"
+	
+		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "generated ${_openarrayprojectdir}/${_openarrayproject}.snps.run_date_info.csv"
+	
+		#create project.run.csv
+		awk '/Experiment Name/,/Sample ID/' "${_openarrayprojectdir}/${_openarrayproject}.txt" > "${chronqc_tmp}/${_openarrayproject}.run.csv.temp"
+		head -n -2 "${chronqc_tmp}/${_openarrayproject}.run.csv.temp" > "${_openarrayprojectdir}/${_openarrayproject}.run.csv"
+		perl -pi -e 's|Experiment Name|Sample|' "${_openarrayprojectdir}/${_openarrayproject}.run.csv"
+		perl -pi -e 's|\%||g' "${_openarrayprojectdir}/${_openarrayproject}.run.csv"
+		sed "2s/\.*[^ \t]*/${project}/" "${_openarrayprojectdir}/${_openarrayproject}.run.csv" > "${chronqc_tmp}/${_openarrayproject}.run.csv.temp"
+		mv "${chronqc_tmp}/${_openarrayproject}.run.csv.temp" "${_openarrayprojectdir}/${_openarrayproject}.run.csv"
+	
+		#create ChronQC runSD samplesheet
+		echo -e "Sample,Run,Date" > "${_openarrayprojectdir}/${_openarrayproject}.run.run_date_info.csv"
+		echo -e "${project},${project},${date}" >> "${_openarrayprojectdir}/${_openarrayproject}.run.run_date_info.csv"
+	
+		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "generated ${_openarrayprojectdir}/${_openarrayproject}.run.run_date_info.csv"
+	
+		#create project.sample.csv file, and flag samples with SD > 80% as PASS.
+		#awk '/Sample ID/,/^$/; sub("%$","",$2) ' "${_filename}" > ${_filename%.*}.samples.csv
+		awk '/Sample ID/,/^$/ {
+			sub("%$","",$2); {
+			if ($2+0 > 75 ) {
+				print $1"\t"$2"\tPASS"}
+			else {
+				print $1"\t"$2"\tFAIL" }
+				}
+			}' "${_openarrayprojectdir}/${_openarrayproject}.txt" > "${_openarrayprojectdir}/${_openarrayproject}.samples.csv"
+	
+		# remove last line, and replace header.
+		head -n -1 "${_openarrayprojectdir}/${_openarrayproject}.samples.csv" > "${chronqc_tmp}/${_openarrayproject}.samples.csv.temp" 
+		sed '1 s/.*/Sample\tSample Call Rate\tQC_PASS/' "${chronqc_tmp}/${_openarrayproject}.samples.csv.temp" > "${_openarrayprojectdir}/${_openarrayproject}.samples.csv"
+	
+		#create ChronQC sample samplesheet.
+		echo -e "Sample,Run,Date" > "${_openarrayprojectdir}/${_openarrayproject}.samples.run_date_info.csv"
+		tail -n +2 "${_openarrayprojectdir}/${_openarrayproject}.samples.csv" | awk -v project="${project}"  -v date="${date}" '{ print $1","project","date }' >> "${_openarrayprojectdir}/${_openarrayproject}.samples.run_date_info.csv"
+	
+		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "generated ${_openarrayprojectdir}/${_openarrayproject}.samples.run_date_info.csv"
+		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "__________________function processOpenArray is done___________________"
+
+		updateOrCreateDatabase run "${_openarrayprojectdir}/${_openarrayproject}.run.csv" "${_openarrayprojectdir}/${_openarrayproject}.run.run_date_info.csv" openarray || return 1
+		updateOrCreateDatabase samples "${_openarrayprojectdir}/${_openarrayproject}.samples.csv" "${_openarrayprojectdir}/${_openarrayproject}.samples.run_date_info.csv" openarray || return 1
+		updateOrCreateDatabase snps "${_openarrayprojectdir}/${_openarrayproject}.snps.csv" "${_openarrayprojectdir}/${_openarrayproject}.snps.run_date_info.csv" openarray || return 1
+		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "done updating the database with ${_openarrayproject}"
+	else
+		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "Project: ${_openarrayprojectdir}/${_openarrayproject} is not accrording to standard formatting, skipping"
+		
+	fi
+}
+
+function processOGM() {
+	local _maindir="${1}"
+	local _ogm_input_dir="${2}"
+	local _ogm_dir="${_ogm_input_dir%/*}"
+
+	readarray -t ogmdata < <(find "${_ogm_input_dir}" -maxdepth 1 -mindepth 1 -type f -name "bas*" | sed -e "s|^"${_ogm_input_dir}/"||")
+	if [[ "${#ogmdata[@]}" -eq '0' ]]
+	then
+		log4Bash 'WARN' "${LINENO}" "${FUNCNAME:-main}" '0' "No projects found @ ${_ogm_input_dir}."
+	else
+		for ogmcsvfile in "${ogmdata[@]}"
+		do
+			ogmfilename=$(basename "${ogmcsvfile}" .csv)
+			ogmfile="${_ogm_input_dir}/${ogmcsvfile}"
+			headercheck='Chip run uid,Flow cell,Instrument,Total DNA (>= 150Kbp),N50 (>= 150Kbp),Average label density (>= 150Kbp),Map rate (%),DNA per scan (Gbp),Longest molecule (Kbp),Timestamp'
+			headerogmfile=$(head -1 "${ogmfile}")
+			if [[ "${headercheck}" == "${headerogmfile}" ]]
+			then
+				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "The header of ${ogmcsvfile} is in the correct format."
+				basmachine=$(echo "${ogmfilename}" | cut -d '.' -f1)
+				mainfile="${_ogm_dir}/mainMetrics-${basmachine}.csv"
+				touch "${mainfile}"
+				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "starting on ogmcsvfile ${ogmcsvfile}."
+				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "basmachine: ${basmachine}"
+				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "adding ${ogmfilename} to ${mainfile}."
+				tail -n +2 "${mainfile}" > "${mainfile}.tmp"
+				tail -n +2 "${ogmfile}" > "${ogmfile}.tmp"
+				metricsfiletoday="${tmp_trendanalyse_dir}/ogm/metricsFile_${today}.csv"
+				mainHeader=$(head -1 "${ogmfile}")
+				echo -e "${mainHeader}" > "${metricsfiletoday}"
+				sort -u "${mainfile}.tmp" "${ogmfile}.tmp" >> "${metricsfiletoday}"
+				rm "${mainfile}"
+				rm "${mainfile}.tmp"
+				rm "${ogmfile}.tmp"
+				cp "${metricsfiletoday}" "${mainfile}"
+				mv "${metricsfiletoday}" "${tmp_trendanalyse_dir}/ogm/metricsFinished/"
+				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "done creating new ${mainfile} added ${ogmfile}"
+			else
+				log4Bash 'WARN' "${LINENO}" "${FUNCNAME:-main}" '0' "The header of ${ogmcsvfile} is in the wrong format."
+			fi
+		done
+	
+		readarray -t mainogmdata< <(find "${_ogm_dir}" -maxdepth 1 -mindepth 1 -type f -name "mainMetrics*")
+
+		if [[ "${#mainogmdata[@]}" -eq '0' ]]
+		then
+			log4Bash 'WARN' "${LINENO}" "${FUNCNAME:-main}" '0' "No mainMetrics file found @ ${_ogm_dir}."
+		else
+			for mainbasfile in "${mainogmdata[@]}"
+			do
+				baslabel=$(basename "${mainbasfile}" .csv | cut -d '-' -f2)
+				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Starting on ogm file ${mainbasfile}, adding it to the database."
+				
+				declare -a statsFileColumnNames=()
+				declare -A statsFileColumnOffsets=()
+
+				IFS=',' read -r -a statsFileColumnNames <<< "$(head -1 "${mainbasfile}")"
+				
+				for (( offset = 0 ; offset < ${#statsFileColumnNames[@]} ; offset++ ))
+				do
+					columnName="${statsFileColumnNames[${offset}]}"
+					statsFileColumnOffsets["${columnName}"]="${offset}"
+				done
+
+				chipRunUIDFieldIndex=$((${statsFileColumnOffsets['Chip run uid']} + 1))
+				FlowCellFielIndex=$((${statsFileColumnOffsets['Flow cell']} + 1))
+				TotalDNAFieldIndex=$((${statsFileColumnOffsets['Total DNA (>= 150Kbp)']} + 1))
+				N50FieldIndex=$((${statsFileColumnOffsets['N50 (>= 150Kbp)']} + 1))
+				AverageLabelDensityFieldIndex=$((${statsFileColumnOffsets['Average label density (>= 150Kbp)']} + 1))
+				MapRateFieldIndex=$((${statsFileColumnOffsets['Map rate (%)']} + 1))
+				DNAPerScanFieldIndex=$((${statsFileColumnOffsets['DNA per scan (Gbp)']} + 1))
+				LongestMolecuulFieldIndex=$((${statsFileColumnOffsets['Longest molecule (Kbp)']} + 1))
+				TimeStampFieldIndex=$((${statsFileColumnOffsets['Timestamp']} + 1))
+
+				echo -e 'Sample,Run,Date' > "OGM-${basmachine}_runDateInfo_${today}.csv"
+
+				while read -r line
+				do
+						dateField=$(echo "${line}" | cut -d ',' -f "${TimeStampFieldIndex}")
+						sampleField=$(echo "${line}" | cut -d ',' -f "${chipRunUIDFieldIndex}")
+						runField=$(echo "${line}" | cut -d ',' -f "${FlowCellFielIndex}")
+						correctDate=$(date -d "${dateField}" '+%d/%m/%Y')
+						echo -e "${sampleField},${runField},${correctDate}" >> "OGM-${basmachine}_runDateInfo_${today}.csv"
+				done < <(tail -n +2 "${mainbasfile}")
+
+				echo -e 'Sample\tFlow_cell\tTotal_DNA(>=150Kbp)\tN50(>=150Kbp)\tAverage_label_density(>=150Kbp)\tMap_rate(%)\tDNA_per_scan(Gbp)\tLongest_molecule(Kbp)' > "OGM-${basmachine}_${today}.csv"
+				awk -v s="${chipRunUIDFieldIndex}" \
+						-v s1="${FlowCellFielIndex}" \
+						-v s2="${TotalDNAFieldIndex}" \
+						-v s3="${N50FieldIndex}" \
+						-v s4="${AverageLabelDensityFieldIndex}" \
+						-v s5="${MapRateFieldIndex}" \
+						-v s6="${DNAPerScanFieldIndex}" \
+						-v s7="${LongestMolecuulFieldIndex}" \
+						'BEGIN {FS=","}{OFS="\t"}{if (NR>1){print $s,$s1,$s2,$s3,$s4,$s5,$s6,$s7}}' "${mainbasfile}" >> "OGM-${basmachine}_${today}.csv"
+
+				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "starting to update or create database using OGM-${basmachine}_${today}.csv and OGM-${basmachine}_runDateInfo_${today}.csv"
+				updateOrCreateDatabase "${basmachine}" "OGM-${basmachine}_${today}.csv" "OGM-${basmachine}_runDateInfo_${today}.csv" ogm || return 1
+				mv "OGM-${basmachine}_${today}.csv" "${_ogm_dir}/metricsFinished/"
+				mv "OGM-${basmachine}_runDateInfo_${today}.csv" "${_ogm_dir}/metricsFinished/"
+			done
+		fi
+	fi
+}
+
+function processRawdata(){
+	local _rawdata="${1}"
+	local _chronqc_rawdata_dir="${2}"
+	_chronqc_rawdata_dir="${_chronqc_rawdata_dir}/${_rawdata}"
+
+	log4Bash 'TRACE' "${LINENO}" "${FUNCNAME:-main}" '0' "Removing files from ${chronqc_tmp} ..."
+	rm -rf "${chronqc_tmp:-missing}"/*
+
+	log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Processing ${_chronqc_rawdata_dir}/SequenceRun_run_date_info_run_date_info.csv"
+	log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "New batch ${_rawdata} will be processed."
+	sequencer=$(echo "${_rawdata}" | cut -d '_' -f2)
+
+	if [[ -e "${_chronqc_rawdata_dir}/SequenceRun_run_date_info.csv" ]]
+	then
+		cp "${_chronqc_rawdata_dir}/SequenceRun_run_date_info.csv" "${chronqc_tmp}/${_rawdata}.SequenceRun_run_date_info.csv"
+		cp "${_chronqc_rawdata_dir}/SequenceRun.csv" "${chronqc_tmp}/${_rawdata}.SequenceRun.csv"
+		updateOrCreateDatabase SequenceRun "${chronqc_tmp}/${_rawdata}.SequenceRun.csv" "${chronqc_tmp}/${_rawdata}.SequenceRun_run_date_info.csv" "${sequencer}"
+	else
+		log4Bash 'INFO' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "${FUNCNAME[0]} for sequence run ${_rawdata}, no sequencer statistics were stored "
+	fi
+}
+
+function processDragen() {
+
+	local _dragenProject="${1}"
+	local _dragenProjectDir="${2}"
+	_dragenProjectDir="${_dragenProjectDir}/${_dragenProject}"
+	_dataType=$(echo "${_dragenProject}" | cut -d '_' -f2 | cut -d '-' -f2)
+
+	
+	log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Processing ${_dragenProject}"
+	file_date=$(date -r "${_dragenProjectDir}/${_dragenProject}.stats.tsv" '+%d/%m/%Y')
+	
+	declare -a statsFileColumnNames=()
+	declare -A statsFileColumnOffsets=()
+	
+	if [[ "${_dataType}" == 'Exoom' ]]
+	then
+		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Skip data preprocesing for Exoom data type: ${_dragenProject}"
+		#runinfoFile="${dragenProject}".Dragen_runinfo.csv
+		#tableFile="${dragenProject}".Dragen.csv
+		#updateOrCreateDatabase dragenExoom "${_dragenProjectDir}/${tableFile}" "${_dragenProjectDir}/${runinfoFile}" dragenExoom 
+	else
+		IFS=$'\t' read -r -a statsFileColumnNames <<< "$(head -1 "${_dragenProjectDir}/${_dragenProject}".stats.tsv)"
+		
+		for (( offset = 0 ; offset < ${#statsFileColumnNames[@]} ; offset++ ))
+		do
+			columnName="${statsFileColumnNames[${offset}]}"
+			statsFileColumnOffsets["${columnName}"]="${offset}"
+		done
+		
+		sampleNameFieldIndex=$((${statsFileColumnOffsets['sample_name']} + 1))
+		totalBasesFieldIndex=$((${statsFileColumnOffsets['total_bases']} + 1))
+		totalReadsFieldIndex=$((${statsFileColumnOffsets['total_reads']} + 1))
+		hq_MappedreadsFieldIndex=$((${statsFileColumnOffsets['hq_mapped_reads']} + 1))
+		duplicateReadPairsFieldIndex=$((${statsFileColumnOffsets['duplicate_readpairs']} + 1))
+		basesOnTargetFieldIndex=$((${statsFileColumnOffsets['bases_on_target']} + 1))
+		meanInsertSizeFieldIndex=$((${statsFileColumnOffsets['mean_insert_size']} + 1))
+		fracMin1xCoverageFieldIndex=$((${statsFileColumnOffsets['frac_min_1x_coverage']} + 1))
+		
+		if [[ -n "${statsFileColumnOffsets['frac_duplicates']+isset}" ]]
+		then
+			fracDuplicatesFieldIndex=$((${statsFileColumnOffsets['frac_duplicates']} + 1))
+		fi
+		if [[ -n "${statsFileColumnOffsets['mean_coverage_genome']+isset}" ]]
+		then
+			meanCoverageGenomeFieldIndex=$((${statsFileColumnOffsets['mean_coverage_genome']} + 1))
+		fi
+		if [[ -n "${statsFileColumnOffsets['frac_min_10x_coverage']+isset}" ]]
+		then
+			fracMin10xCoverageFieldIndex=$((${statsFileColumnOffsets['frac_min_10x_coverage']} + 1))
+		fi
+		if [[ -n "${statsFileColumnOffsets['frac_min_50x_coverage']+isset}" ]]
+		then
+			fracMin50xCoverageFieldIndex=$((${statsFileColumnOffsets['frac_min_50x_coverage']} + 1))
+		fi
+		if [[ -n "${statsFileColumnOffsets['mean_alignment_coverage']+isset}" ]]
+		then
+			mean_alignment_coverageCoverageFieldIndex=$((${statsFileColumnOffsets['mean_alignment_coverage']} + 1))
+		fi
+		if [[ -n "${statsFileColumnOffsets['coverage_uniformity']+isset}" ]]
+		then
+			coverage_uniformityCoverageFieldIndex=$((${statsFileColumnOffsets['coverage_uniformity']} + 1))
+		fi
+
+		echo -e 'Sample,Run,Date' > "${_dragenProjectDir}/${_dragenProject}.Dragen_runinfo.csv"
+		awk -v s="${_dragenProject}" -v f="${file_date}" 'BEGIN {FS="\t"}{OFS=","}{if (NR>1){print $1,s,f}}' "${_dragenProjectDir}/${_dragenProject}.stats.tsv" >> "${_dragenProjectDir}/${_dragenProject}.Dragen_runinfo.csv"
+		
+		if [[ "${_dataType}" == *"sWGS"* ]]
+		then
+			log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Processing ${_dragenProject} with data type ${_dataType}"
+			echo -e 'Sample\tBatchName\ttotal_bases\ttotal_reads\thq_mapped_reads\tduplicate_readpairs\tbases_on_target\tmean_insert_size\tfrac_min_1x_coverage\tfrac_duplicates\tmean_coverage_genome'  > "${_dragenProjectDir}/${_dragenProject}.Dragen.csv"
+		
+			awk -v s1="${sampleNameFieldIndex}" \
+					-v s="${_dragenProject}" \
+					-v s2="${totalBasesFieldIndex}" \
+					-v s3="${totalReadsFieldIndex}" \
+					-v s4="${hq_MappedreadsFieldIndex}" \
+					-v s5="${duplicateReadPairsFieldIndex}" \
+					-v s6="${basesOnTargetFieldIndex}" \
+					-v s7="${meanInsertSizeFieldIndex}" \
+					-v s8="${fracMin1xCoverageFieldIndex}" \
+					-v s9="${fracDuplicatesFieldIndex}" \
+					-v s10="${meanCoverageGenomeFieldIndex}" \
+				'BEGIN {FS="\t"}{OFS="\t"}{if (NR>1){print $s1,s,$s2,$s3,$s4,$s5,$s6,$s7,$s8,$s9,$s10}}' "${_dragenProjectDir}/${_dragenProject}.stats.tsv" >>  "${_dragenProjectDir}/${_dragenProject}.Dragen.csv"
+		elif [[ "${_dataType}" == *"WGS"* ]]
+		then
+			log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Processing ${_dragenProject} with data type ${_dataType}"
+			echo -e 'Sample\tBatchName\ttotal_bases\ttotal_reads\thq_mapped_reads\tduplicate_readpairs\tbases_on_target\tmean_insert_size\tfrac_min_1x_coverage\tfrac_min_10x_coverage\tfrac_min_50x_coverage\tmean_coverage_genome\tmean_alignment_coverage\tcoverage_uniformity'  > "${_dragenProjectDir}/${_dragenProject}.Dragen.csv"
+		
+			awk -v s1="${sampleNameFieldIndex}" \
+				-v s="${_dragenProject}" \
+				-v s2="${totalBasesFieldIndex}" \
+				-v s3="${totalReadsFieldIndex}" \
+				-v s4="${hq_MappedreadsFieldIndex}" \
+				-v s5="${duplicateReadPairsFieldIndex}" \
+				-v s6="${basesOnTargetFieldIndex}" \
+				-v s7="${meanInsertSizeFieldIndex}" \
+				-v s8="${fracMin1xCoverageFieldIndex}" \
+				-v s9="${fracMin10xCoverageFieldIndex}" \
+				-v s10="${fracMin50xCoverageFieldIndex}" \
+				-v s11="${meanCoverageGenomeFieldIndex}" \
+				-v s12="${mean_alignment_coverageCoverageFieldIndex}" \
+				-v s13="${coverage_uniformityCoverageFieldIndex}" \
+			'BEGIN {FS="\t"}{OFS="\t"}{if (NR>1){print $s1,s,$s2,$s3,$s4,$s5,$s6,$s7,$s8,$s9,$s10,$s11,$s12,$s13}}' "${_dragenProjectDir}/${_dragenProject}.stats.tsv" >>  "${_dragenProjectDir}/${_dragenProject}.Dragen.csv"
+		else
+			log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Project ${_dragenProject} is not a sWGS or WGS project, is there something wrong?"
+		fi
+	fi
+		
+		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Done making the run_data_info and table file for project ${_dragenProject}"
+		updateOrCreateDatabase "dragen${_dataType}" "${_dragenProjectDir}/${_dragenProject}.Dragen.csv" "${_dragenProjectDir}/${_dragenProject}.Dragen_runinfo.csv" "dragen${_dataType}"
+
+}
+
+#processRawdata()    { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> rawdata verwerken: $1"; }
 #processProjects()   { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> project verwerken: $1"; }
 #processRnaProjects(){ log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> RNA-project verwerken: $1"; }
 #processDarwin()     { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> darwin verwerken: $1"; }
-processDragen()     { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> dragen verwerken: $1"; }
-processOpenarray()  { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> openarray verwerken: $1"; }
-processOgm()        { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> ogm verwerken: $1"; }
+#processDragen()     { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> dragen verwerken: $1"; }
+#processOpenarray()  { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> openarray verwerken: $1"; }
+#processOgm()        { log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "  -> ogm verwerken: $1"; }
 
 #
 ##
@@ -589,7 +921,6 @@ chronqc_tmp="${tmp_trendanalyse_dir}/tmp/"
 CHRONQC_DATABASE_NAME="${tmp_trendanalyse_dir}/database/"
 today=$(date '+%Y%m%d')
 
-
 # Make sure ENABLED_TYPES always exist
 if ! declare -p ENABLED_TYPES &>/dev/null; then
   # Declare all false if not defined.
@@ -613,7 +944,7 @@ declare -A DATA_HANDLERS=(
   [darwin]=processDarwin
   [dragen]=processDragen
   [openarray]=processOpenArray
-  [ogm]=processOgm
+  [ogm]=processOGM
 )
 
 # loop over data types from config that need to be processed, and skip when false.
@@ -624,7 +955,6 @@ for type in "${!DATA_HANDLERS[@]}"; do
     log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Skip $type (disabled)"
   fi
 done
-
 
 trap - EXIT
 exit 0
