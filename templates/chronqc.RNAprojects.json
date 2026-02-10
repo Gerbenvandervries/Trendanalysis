@@ -34,7 +34,8 @@
         "chart_properties": {
             "chart_title": "TIN median",
             "y_value": "RSeQC_mqc-generalstats-rseqc-TIN_median",
-            "y_label": "TIN median"
+            "y_label": "TIN median",
+            "lower_threshold": 70
         }
     },
     {
