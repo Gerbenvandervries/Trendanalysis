@@ -887,7 +887,6 @@ logs_dir="${TMP_ROOT_DIR}/logs/trendanalysis/"
 mkdir -p "${TMP_ROOT_DIR}/logs/trendanalysis/"
 chronqc_tmp="${tmp_trendanalyse_dir}/tmp/"
 CHRONQC_DATABASE_NAME="${tmp_trendanalyse_dir}/database/"
-CHRONQC_TEMPLATE_DIRS="${EBROOTTRENDANALYSIS}/templates"
 today=$(date '+%Y%m%d')
 
 # Make sure ENABLED_TYPES always exist
