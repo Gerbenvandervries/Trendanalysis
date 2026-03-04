@@ -100,7 +100,7 @@ function isAlreadyProcessed() {
 	local finished_file="${logs_dir}/process.${_datatype}.trendanalysis.finished"
 	if [[ -f "${finished_file}" ]]
 	then
-		grep -Fxq "${_job_control_line}" "${finished_file}"	
+		grep -Fxq "${_job_control_line}" "${finished_file}"
 	else
 		touch "${finished_file}"
 		return 1
@@ -139,7 +139,7 @@ function processData() {
 
 	log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Processing of datatype '${_datatype}' started..."
 	# Get all runDirs in form the provided $basedir
-	readarray -t runs < <(find "${_basedir}" -maxdepth 1 -mindepth 1 -type d -name "[!.]*" | xargs -r basename -a)
+	readarray -t runs < <(find "${_basedir}" -maxdepth 1 -mindepth 1 -type d -name "[!.]*" -printf "%f\n")
 
 	# If exporting a full dataset and no rundirs are provided,
 	# use basename + date as the rundir. For example: ogm and darwin dataType.
@@ -544,7 +544,7 @@ function processOGM() {
 	local _ogm_input_dir="${2}"
 	local _ogm_dir="${_ogm_input_dir%/*}"
 
-	readarray -t ogmdata < <(find "${_ogm_input_dir}" -maxdepth 1 -mindepth 1 -type f -name "bas*" | sed -e "s|^"${_ogm_input_dir}/"||")
+	readarray -t ogmdata < <(find "${_ogm_input_dir}" -maxdepth 1 -mindepth 1 -type f -name "bas*" | sed -e "s|^${_ogm_input_dir}/||")
 	if [[ "${#ogmdata[@]}" -eq '0' ]]
 	then
 		log4Bash 'WARN' "${LINENO}" "${FUNCNAME:-main}" '0' "No projects found @ ${_ogm_input_dir}."
