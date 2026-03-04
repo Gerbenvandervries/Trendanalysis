@@ -89,7 +89,7 @@ function doesTableExist() {
 	[[ -n "${_db_table}" ]] || return 1
 
 	sqlite3 "${_db_path}" \
-		"SELECT 1 FROM sqlite_master WHERE type='table' AND name='$_db_table' LIMIT 1;" \
+		"SELECT 1 FROM sqlite_master WHERE type='table' AND name='${_db_table}' LIMIT 1;" \
 		| grep -q 1
 }
 
@@ -137,13 +137,13 @@ function processData() {
 	local _data_handler="${2}"
 	local _basedir="${3}"
 
-	log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Processing of datatype '$_datatype' started..."
+	log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Processing of datatype '${_datatype}' started..."
 	# Get all runDirs in form the provided $basedir
 	readarray -t runs < <(find "${_basedir}" -maxdepth 1 -mindepth 1 -type d -name "[!.]*" | xargs -r basename -a)
 
 	# If exporting a full dataset and no rundirs are provided,
 	# use basename + date as the rundir. For example: ogm and darwin dataType.
-	if [ "${#runs[@]}" -eq 0 ]; then
+	if [[ "${#runs[@]}" -eq 0 ]]; then
 		runs=( "$(basename "${_basedir}").${today}" )
 	fi
 
@@ -917,10 +917,10 @@ declare -A DATA_HANDLERS=(
 
 # loop over data types from config that need to be processed, and skip when false.
 for type in "${!DATA_HANDLERS[@]}"; do
-	if [[ "${ENABLED_TYPES[$type]:-false}" == "true" ]]; then
-		processData "${type}" "${DATA_HANDLERS[$type]}" "${INPUTDIRS[$type]}"
+	if [[ "${ENABLED_TYPES[${type}]:-false}" == "true" ]]; then
+		processData "${type}" "${DATA_HANDLERS[${type}]}" "${INPUTDIRS[${type}]}"
 	else
-		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Skip $type (disabled)"
+		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Skip ${type} (disabled)"
 	fi
 done
 
