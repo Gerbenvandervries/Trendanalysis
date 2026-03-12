@@ -531,7 +531,9 @@ function processOpenArray() {
 
 		# shellcheck disable=SC2310
 		updateOrCreateDatabase run "${_openarrayprojectdir}/${_openarrayproject}.run.csv" "${_openarrayprojectdir}/${_openarrayproject}.run.run_date_info.csv" openarray || return 1
+		# shellcheck disable=SC2310
 		updateOrCreateDatabase samples "${_openarrayprojectdir}/${_openarrayproject}.samples.csv" "${_openarrayprojectdir}/${_openarrayproject}.samples.run_date_info.csv" openarray || return 1
+		# shellcheck disable=SC2310
 		updateOrCreateDatabase snps "${_openarrayprojectdir}/${_openarrayproject}.snps.csv" "${_openarrayprojectdir}/${_openarrayproject}.snps.run_date_info.csv" openarray || return 1
 		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "done updating the database with ${_openarrayproject}"
 	else
