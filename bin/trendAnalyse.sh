@@ -306,6 +306,7 @@ function processProjects() {
 				if [[ "${_metrics}" == multiqc_fastqc.txt ]]
 				then
 					updateOrCreateDatabase "${_table}" "${chronqc_tmp}/${_project}.2.${_metrics}" "${chronqc_tmp}/${_project}.lane.run_date_info.csv" "${_panel}" || {
+					echo 'bla'
 					return 1 
 					}
 				elif [[ -f "${chronqc_tmp}/${_project}.2.${_metrics}" ]]
