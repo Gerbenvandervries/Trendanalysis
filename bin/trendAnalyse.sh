@@ -28,6 +28,7 @@ HOSTNAME_SHORT="$(hostname -s)"
 ROLE_USER="$(whoami)"
 REAL_USER="$(logname 2>/dev/null || echo 'no login name')"
 
+
 #
 ##
 ### General functions.
@@ -59,6 +60,8 @@ Options:
 
 		-h   Show this help.
 		-g   Group.
+		-d InputDataType dragen|projects|RNAprojects|ogm|darwin|openarray|rawdata 
+		Providing InputDataType (or list: dragen,projects) to run only a specific data type for testing or debugging.
 		-l   Log level.
 		Must be one of TRACE, DEBUG, INFO (default), WARN, ERROR or FATAL.
 
@@ -127,8 +130,8 @@ function markProcessingFailed() {
 	local _datatype="${1}"
 	local _job_control_line="${2}"
 
-	sed -i "/${job_control_line}/d" "${logs_dir}/process.${_datatype}.trendanalysis.started"
-	echo "${job_control_line}" >> "${logs_dir}/process.${_datatype}.trendanalysis.failed"
+	sed -i "/${_job_control_line}/d" "${logs_dir}/process.${_datatype}.trendanalysis.started"
+	echo "${_job_control_line}" >> "${logs_dir}/process.${_datatype}.trendanalysis.failed"
 }
 
 # Generic data processor for each datahandler/dataType
@@ -194,7 +197,7 @@ function updateOrCreateDatabase() {
 				--run-date-info "${_runDateInfo}" \
 				"${_dataLabel}" || {
 					log4Bash 'ERROR' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "Failed to import ${_tableFile} with ${_dataLabel} stored to Chronqc database." 
-					return
+					return 1
 		}
 	else
 		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Tabel ${_db_table} does not exist in ${CHRONQC_DATABASE_NAME}/chronqc_db/chronqc.stats.sqlite, \
@@ -208,7 +211,7 @@ function updateOrCreateDatabase() {
 			--db-table "${_db_table}" \
 			"${_dataLabel}" -f || {
 			log4Bash 'ERROR' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "Failed to create database and import ${_tableFile} with ${_dataLabel} stored to Chronqc database." 
-			return
+			return 1
 			}
 		fi
 	log4Bash 'INFO' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "${FUNCNAME[0]} ${_tableFile} with ${_dataLabel} was stored in Chronqc database."
@@ -300,13 +303,14 @@ function processProjects() {
 				local _metrics="${i%:*}"
 				local _table="${i#*:}"
 				log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Importing ${_project}.${_metrics}, and using table ${_table}"
-				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "________________${_metrics}________${_table}_____________"
 				if [[ "${_metrics}" == multiqc_fastqc.txt ]]
 				then
-					updateOrCreateDatabase "${_table}" "${chronqc_tmp}/${_project}.2.${_metrics}" "${chronqc_tmp}/${_project}.lane.run_date_info.csv" "${_panel}"
+					# shellcheck disable=SC2310
+					updateOrCreateDatabase "${_table}" "${chronqc_tmp}/${_project}.2.${_metrics}" "${chronqc_tmp}/${_project}.lane.run_date_info.csv" "${_panel}" || return 1 
 				elif [[ -f "${chronqc_tmp}/${_project}.2.${_metrics}" ]]
 				then
-					updateOrCreateDatabase "${_table}" "${chronqc_tmp}/${_project}.2.${_metrics}" "${chronqc_tmp}/${_project}.2.run_date_info.csv" "${_panel}"
+					# shellcheck disable=SC2310
+					updateOrCreateDatabase "${_table}" "${chronqc_tmp}/${_project}.2.${_metrics}" "${chronqc_tmp}/${_project}.2.run_date_info.csv" "${_panel}" || return 1
 				else
 					log4Bash 'INFO' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "The file ${chronqc_tmp}/${_project}.2.${_metrics} does not exist, so can't be added to the database"
 					continue
@@ -374,9 +378,11 @@ function processRnaProjects {
 				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "________________${_rnametrics}________${_rnatable}_____________"
 				if [[ "${_rnametrics}" == multiqc_picard_RnaSeqMetrics.txt ]]
 				then
-					updateOrCreateDatabase "${_rnatable}" "${chronqc_tmp}/${_rnaproject}.1.${_rnametrics}" "${chronqc_tmp}/${_rnaproject}.2.run_date_info.csv" RNA 
+					# shellcheck disable=SC2310
+					updateOrCreateDatabase "${_rnatable}" "${chronqc_tmp}/${_rnaproject}.1.${_rnametrics}" "${chronqc_tmp}/${_rnaproject}.2.run_date_info.csv" RNA || return 1
 				else
-					updateOrCreateDatabase "${_rnatable}" "${chronqc_tmp}/${_rnaproject}.${_rnametrics}" "${chronqc_tmp}/${_rnaproject}.2.run_date_info.csv" RNA 
+					# shellcheck disable=SC2310
+					updateOrCreateDatabase "${_rnatable}" "${chronqc_tmp}/${_rnaproject}.${_rnametrics}" "${chronqc_tmp}/${_rnaproject}.2.run_date_info.csv" RNA || return 1
 				fi
 			done
 		else
@@ -431,11 +437,13 @@ function processDarwin() {
 			grep Nimbus "${_runInfoFile}" >> "${chronqc_tmp}/ConcentratieNimbus_runinfo_${_fileDate}.csv"
 			grep Nimbus "${_tableFile}" >> "${chronqc_tmp}/ConcentratieNimbus_${_fileDate}.csv"
 			
-			updateOrCreateDatabase "${_fileType}" "${chronqc_tmp}/ConcentratieNimbus_${_fileDate}.csv" "${chronqc_tmp}/ConcentratieNimbus_runinfo_${_fileDate}.csv" Nimbus true
+			# shellcheck disable=SC2310
+			updateOrCreateDatabase "${_fileType}" "${chronqc_tmp}/ConcentratieNimbus_${_fileDate}.csv" "${chronqc_tmp}/ConcentratieNimbus_runinfo_${_fileDate}.csv" Nimbus true || return 1
 
 			log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "database filled with ConcentratieNimbus_${_fileDate}.csv"
 		else
-			updateOrCreateDatabase "${_fileType}" "${_tableFile}" "${_runInfoFile}" NGSlab true
+			# shellcheck disable=SC2310
+			updateOrCreateDatabase "${_fileType}" "${_tableFile}" "${_runInfoFile}" NGSlab true || return 1
 		fi
 	done
 }
@@ -521,9 +529,12 @@ function processOpenArray() {
 		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "generated ${_openarrayprojectdir}/${_openarrayproject}.samples.run_date_info.csv"
 		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "__________________function processOpenArray is done___________________"
 
-		updateOrCreateDatabase run "${_openarrayprojectdir}/${_openarrayproject}.run.csv" "${_openarrayprojectdir}/${_openarrayproject}.run.run_date_info.csv" openarray
-		updateOrCreateDatabase samples "${_openarrayprojectdir}/${_openarrayproject}.samples.csv" "${_openarrayprojectdir}/${_openarrayproject}.samples.run_date_info.csv" openarray
-		updateOrCreateDatabase snps "${_openarrayprojectdir}/${_openarrayproject}.snps.csv" "${_openarrayprojectdir}/${_openarrayproject}.snps.run_date_info.csv" openarray
+		# shellcheck disable=SC2310
+		updateOrCreateDatabase run "${_openarrayprojectdir}/${_openarrayproject}.run.csv" "${_openarrayprojectdir}/${_openarrayproject}.run.run_date_info.csv" openarray || return 1
+		# shellcheck disable=SC2310
+		updateOrCreateDatabase samples "${_openarrayprojectdir}/${_openarrayproject}.samples.csv" "${_openarrayprojectdir}/${_openarrayproject}.samples.run_date_info.csv" openarray || return 1
+		# shellcheck disable=SC2310
+		updateOrCreateDatabase snps "${_openarrayprojectdir}/${_openarrayproject}.snps.csv" "${_openarrayprojectdir}/${_openarrayproject}.snps.run_date_info.csv" openarray || return 1
 		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "done updating the database with ${_openarrayproject}"
 	else
 		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "Project: ${_openarrayprojectdir}/${_openarrayproject} is not accrording to standard formatting, skipping"
@@ -629,7 +640,8 @@ function processOGM() {
 
 				log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "starting to update or create database using OGM-${baslabel}_${today}.csv and OGM-${baslabel}_runDateInfo_${today}.csv"
 				# force create a new table with forcecreate == true
-				updateOrCreateDatabase "${baslabel}" "${_ogm_dir}/OGM-${baslabel}_${today}.csv" "${_ogm_dir}/OGM-${baslabel}_runDateInfo_${today}.csv" "${baslabel}" true
+				# shellcheck disable=SC2310
+				updateOrCreateDatabase "${baslabel}" "${_ogm_dir}/OGM-${baslabel}_${today}.csv" "${_ogm_dir}/OGM-${baslabel}_runDateInfo_${today}.csv" "${baslabel}" true || return 1
 				mv "${_ogm_dir}/OGM-${baslabel}_${today}.csv" "${_ogm_dir}/metricsFinished/"
 				mv "${_ogm_dir}/OGM-${baslabel}_runDateInfo_${today}.csv" "${_ogm_dir}/metricsFinished/"
 			done
@@ -653,7 +665,8 @@ function processRawdata(){
 	then
 		cp "${_chronqc_rawdata_dir}/SequenceRun_run_date_info.csv" "${chronqc_tmp}/${_rawdata}.SequenceRun_run_date_info.csv"
 		cp "${_chronqc_rawdata_dir}/SequenceRun.csv" "${chronqc_tmp}/${_rawdata}.SequenceRun.csv"
-		updateOrCreateDatabase SequenceRun "${chronqc_tmp}/${_rawdata}.SequenceRun.csv" "${chronqc_tmp}/${_rawdata}.SequenceRun_run_date_info.csv" "${sequencer}"
+		# shellcheck disable=SC2310
+		updateOrCreateDatabase SequenceRun "${chronqc_tmp}/${_rawdata}.SequenceRun.csv" "${chronqc_tmp}/${_rawdata}.SequenceRun_run_date_info.csv" "${sequencer}" || return 1
 	else
 		log4Bash 'INFO' "${LINENO}" "${FUNCNAME[0]:-main}" '0' "${FUNCNAME[0]} for sequence run ${_rawdata}, no sequencer statistics were stored "
 	fi
@@ -765,7 +778,8 @@ function processDragen() {
 	fi
 		
 		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Done making the run_data_info and table file for project ${_dragenProject}"
-		updateOrCreateDatabase "dragen${_dataType}" "${_dragenProjectDir}/${_dragenProject}.Dragen.csv" "${_dragenProjectDir}/${_dragenProject}.Dragen_runinfo.csv" "dragen${_dataType}"
+		# shellcheck disable=SC2310
+		updateOrCreateDatabase "dragen${_dataType}" "${_dragenProjectDir}/${_dragenProject}.Dragen.csv" "${_dragenProjectDir}/${_dragenProject}.Dragen_runinfo.csv" "dragen${_dataType}" || return 1
 }
 
 function generateReports() {
@@ -786,8 +800,9 @@ function generateReports() {
 
 log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Parsing commandline arguments ..."
 declare group=''
+declare cli_datatype=""
 
-while getopts ":g:l:h" opt
+while getopts ":g:d:l:h" opt
 do
 	case "${opt}" in
 		h)
@@ -795,6 +810,9 @@ do
 			;;
 		g)
 			group="${OPTARG}"
+			;;
+		d)
+			cli_datatype="${OPTARG}"
 			;;
 		l)
 			l4b_log_level="${OPTARG^^}"
@@ -881,20 +899,8 @@ chronqc_tmp="${tmp_trendanalyse_dir}/tmp/"
 CHRONQC_DATABASE_NAME="${tmp_trendanalyse_dir}/database/"
 today=$(date '+%Y%m%d')
 
-# Make sure ENABLED_TYPES always exist
-if ! declare -p ENABLED_TYPES &>/dev/null; then
-	# Declare all false if not defined.
-	declare -A ENABLED_TYPES=(
-		[rawdata]="${rawdata:-false}"
-		[projects]="${projects:-false}"
-		[RNAprojects]="${RNAprojects:-false}"
-		[darwin]="${darwin:-false}"
-		[dragen]="${dragen:-false}"
-		[openarray]="${openarray:-false}"
-		[ogm]="${ogm:-false}"
-		[report]="${report:-false}"
-	)
-fi
+# Determine processing order
+DATATYPE_ORDER=(rawdata projects RNAprojects darwin dragen openarray ogm reports)
 
 # Mapping: dataType + functions + inputdir
 declare -A DATA_HANDLERS=(
@@ -905,22 +911,31 @@ declare -A DATA_HANDLERS=(
 	[dragen]=processDragen
 	[openarray]=processOpenArray
 	[ogm]=processOGM
+	[reports]=generateReports
 )
 
-# loop over data types from config that need to be processed, and skip when false.
-for type in "${!DATA_HANDLERS[@]}"; do
+# Overwrite config defined dataTypes if a list was provided via commandline option '-d type'
+if [[ -n "${cli_datatype}" ]]; then
+	declare -A ENABLED_TYPES=()
+	IFS=',' read -ra types <<< "${cli_datatype}"
+
+	for t in "${types[@]}"; do
+		if [[ -z "${DATA_HANDLERS[${t}]:-}" ]]; then
+			log4Bash 'ERROR' "${LINENO}" "${FUNCNAME:-main}" '1' "Unknown datatype '${t}'"
+			exit 1
+		fi
+		ENABLED_TYPES["${t}"]=true
+	done
+fi
+
+# loop over DATATYPE_ORDER, that need to be processed, and skip when false.
+for type in "${DATATYPE_ORDER[@]}"; do
 	if [[ "${ENABLED_TYPES[${type}]:-false}" == "true" ]]; then
 		processData "${type}" "${DATA_HANDLERS[${type}]}" "${INPUTDIRS[${type}]}"
 	else
 		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Skip ${type} (disabled)"
 	fi
 done
-
-#
-## Generating a list of ChronQC plots after all the dataTypes have been processed.
-## processData: dataType label + functions + inputdir
-#
-processData "generate_plots" "generateReports" "${INPUTDIRS['report']}"
 
 chronqc_tmp="${tmp_trendanalyse_dir}/tmp/"
 log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "cleanup ${chronqc_tmp}* ..."
