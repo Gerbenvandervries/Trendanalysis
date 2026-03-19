@@ -187,9 +187,9 @@ function updateOrCreateDatabase() {
 	log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Force create database for project == ${_forceCreate}"
 	
 	# shellcheck disable=SC2310
-	if doesTableExist "${CHRONQC_DATABASE_NAME}/chronqc_db/chronqc.stats.sqlite" "${_db_table}" || [[ "${_forceCreate}" != "true" ]]; then
+	if doesTableExist "${CHRONQC_DATABASE_NAME}/chronqc_db/chronqc.stats.sqlite" "${_db_table}" && [[ "${_forceCreate}" != "true" ]]; then
 		log4Bash 'INFO' "${LINENO}" "${FUNCNAME:-main}" '0' "Update database for project ${_tableFile} in exiting table ${_db_table}."
-		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Tabel ${_db_table} does exist in ${CHRONQC_DATABASE_NAME}/chronqc_db/chronqc.stats.sqlite" 
+		log4Bash 'DEBUG' "${LINENO}" "${FUNCNAME:-main}" '0' "Tabel ${_db_table} does exist in ${CHRONQC_DATABASE_NAME}/chronqc_db/chronqc.stats.sqlite &&  _forceCreate} != 'true'." 
 		# update datebase if tabel already exist.
 		chronqc database --update --db "${CHRONQC_DATABASE_NAME}/chronqc_db/chronqc.stats.sqlite" \
 				"${_tableFile}" \
