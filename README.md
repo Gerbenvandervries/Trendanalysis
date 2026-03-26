@@ -72,13 +72,23 @@ Run trendAnalyse.sh again, all datatypes are added which are on ${TMP}.
 If you want to test with 1 datatype, see https://chronqc.readthedocs.io/en/latest/run_chronqc.html.
 You can run chronQC with the runDateInfo file and the table file.
 
-trendAnalyse.sh has a `-d` `inputDataType` option. Then your are able to only add the data of 1 data type to the database. 
+The `trendAnalyse.sh` script includes a `-d` option `(dragen|projects|RNAprojects|ogm|darwin|openarray|rawdata)`. This allows you to specify one or more datatypes to process (use a comma-separated list, e.g. `dragen,projects`). This option is particularly useful for testing or debugging.
 
-You can play with the different graph types. Adjust the .json file you use to generate the plots. The *.json files are in the /template/ folder in the Trendanalysis repo.
+By default, the datatypes to be processed are defined in the group configuration files located at `etc/{group}.cfg`. In these files, you can enable or disable specific datatypes using:
+```bash
+ENABLED_TYPES=(
+  [rawdata]=true
+  [projects]=false
+  ...
+)
+```
+Each datatype can be set to `true` or `false` depending on whether it should be included in processing.
 
-Then, in the trendAnalyse.sh script, the file templates/reports.sh is sourced.
+You can play with the different graph types. Adjust the `.json` file you use to generate the plots. The *.json files are in the `templates/` folder in the Trendanalysis repo.
+
+Then, in the trendAnalyse.sh script, the file `templates/reports.sh` is sourced.
 In this file the commands are noted so you can generate the report files you like for the data types you want.
-In the command to generate the reports a json file is needed. These are also in the /templates/ folder in the Trendanalysis repo.
+In the command to generate the reports a json file is needed. These are also in the `templates/` folder in the Trendanalysis repo.
 In these json files you can note which type of graphs you want to see in the report, which is in html file format.
 
 Side note: for instance the inhouse rawdata sequence runs: The data of all sequencers are in 1 table in the database, but a selection is made based on the number of the sequencer. 
