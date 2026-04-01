@@ -101,13 +101,18 @@ function isAlreadyProcessed() {
 	local _job_control_line="${2}"
 
 	local finished_file="${logs_dir}/process.${_datatype}.trendanalysis.finished"
-	if [[ -f "${finished_file}" ]]
-	then
-		grep -Fxq "${_job_control_line}" "${finished_file}"
-	else
-		touch "${finished_file}"
-		return 1
+	local failed_file="${logs_dir}/process.${_datatype}.trendanalysis.failed"
+	if [[ -f "${finished_file}" ]]; then
+		if grep -Fxq "${_job_control_line}" "${finished_file}"; then
+			return 0
+		fi
 	fi
+	if [[ -f "${failed_file}" ]]; then
+		if grep -Fxq "${_job_control_line}" "${failed_file}"; then
+			return 0
+		fi
+	fi
+	return 1
 }
 
 function markProcessingStarted() {
